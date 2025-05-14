@@ -3,7 +3,7 @@
 ## Installation
 ```
 conda env create -f environment.yml
-conda activate hier_diffusion
+conda activate sih_diffuser
 pip install -e .
 ```
 
