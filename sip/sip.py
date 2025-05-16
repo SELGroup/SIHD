@@ -124,7 +124,7 @@ class PartitionTreeNode():
         self.vol = vol
         self.g = g
         self.merged = False
-        self.child_h = child_h
+        self.child_h = child_h #不包括该节点的子树高度
         self.child_cut = child_cut
 
     def __str__(self):
@@ -475,6 +475,13 @@ class PartitionTree():
             ent += 0.0
         return self.path_entropy(node.parent, ent)
     
+    def cal_weight(self, id):
+        node = self.tree_node[id]
+        cg_sum = 0.0
+        for cid in node.children:
+            cg_sum += self.tree_node[cid].g
+        return (cg_sum - node.g) / max(0.01, node.vol)
+    
     def community_entropy(self, leaves):
         nodes = set()
         for lid in leaves:
@@ -502,5 +509,5 @@ if __name__ == "__main__":
     for nid, node in y.tree_node.items():
         print(nid, node)
     for nid, node in y.tree_node.items():
-        if node.children is None:
-            print(nid, y.path_entropy(nid, 0.0))
+        if node.children is not None:
+            print(nid, y.cal_weight(nid))

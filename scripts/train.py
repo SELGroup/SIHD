@@ -92,6 +92,8 @@ diffusion_config = utils.Config(
     loss_weights=args.loss_weights,
     loss_discount=args.loss_discount,
     device=args.device,
+    node_height=args.node_height,
+    eta_weight=dataset.eta_weight,
 )
 
 trainer_config = utils.Config(

@@ -4,6 +4,8 @@ import torch
 from torch import nn
 import pdb
 from torch.distributions import Normal
+import torch.nn.functional as F
+import math
 
 import diffuser.utils as utils
 from .helpers import (
@@ -58,6 +60,8 @@ class GaussianDiffusion(nn.Module):
         loss_weights=None,
         hidden_dim=256,
         cond_key=[0],
+        node_height=1,
+        eta_weight=1.0,
     ):
         super().__init__()
         self.horizon = horizon
@@ -66,6 +70,8 @@ class GaussianDiffusion(nn.Module):
         self.transition_dim = observation_dim + action_dim
         self.cond_key = cond_key
         self.model = model
+        self.node_height = node_height
+        self.eta_weight = eta_weight
 
         betas = cosine_beta_schedule(n_timesteps)
         alphas = 1.0 - betas
@@ -297,14 +303,126 @@ class GaussianDiffusion(nn.Module):
         return loss, info
 
     def loss(self, x, *args):
+
         batch_size = len(x)
         t = torch.randint(0, self.n_timesteps, (batch_size,), device=x.device).long()
+        p_losses = self.p_losses(x, *args, t)
 
-        return self.p_losses(x, *args, t)
+        prob = self.cal_prob(x, *args, t)
+        entropy = self.cal_entropy(prob)
+
+        if self.node_height == 1:
+            p_losses[0] -= 0.1 * entropy
+        elif self.node_height > 1:
+            p_losses[0] += 0.1 * self.eta_weight * entropy
+        
+        return p_losses
 
     def forward(self, cond, *args, **kwargs):
         return self.conditional_sample(cond, *args, **kwargs)
 
+    def cal_entropy(self, prob, eps=1e-8):
+        prob = prob.clamp(min=eps, max=1.0 - eps)
+        log_prob = torch.log(prob)
+        entropy = -torch.sum(prob * log_prob, dim=-1)
+        return torch.mean(entropy)
+
+    def cal_prob(self, x, cond, t=None, eps=1e-8):
+        """
+        Compute probability distribution while preserving original distribution characteristics
+        
+        Args:
+            x: input tensor of shape [batch_size, element_number, dimension]
+            cond: conditioning information
+            t: optional timestep tensor of shape [batch_size]
+            return_prob_distribution: whether to normalize to probability distribution
+            eps: small value to avoid division by zero
+            
+        Returns:
+            If return_prob_distribution=True:
+                prob_dist: tensor of shape [batch_size, element_number] (sums to 1 per batch)
+            Else:
+                log_prob: tensor of shape [batch_size, element_number] (unnormalized)
+        """
+        # Compute raw log probabilities
+        log_prob = self.raw_log_prob(x, cond, t)  # [batch_size, element_number]
+
+        for bid in range(log_prob.shape[0]):
+            min_prob = min(log_prob[bid])
+            weight = 1.0
+            while (min_prob / weight) < -10:
+                weight *= 10.0
+            log_prob[bid,:] /= weight
+    
+        # Convert log probabilities to linear scale while preserving original distribution
+        prob = torch.exp(log_prob)
+        # Normalize to sum to 1 (add eps for numerical stability)
+        prob_dist = prob / (prob.sum(dim=-1, keepdim=True) + eps)
+            
+        return prob_dist
+
+    def raw_log_prob(self, x, cond, t=None):
+        """
+        Compute log probability for each element in the sequence independently
+        
+        Args:
+            x: input tensor of shape [batch_size, element_number, dimension]
+            cond: conditioning information
+            t: optional timestep tensor of shape [batch_size]
+        
+        Returns:
+            log_prob: tensor of shape [batch_size, element_number] 
+        """
+        device = self.betas.device
+        batch_size, element_num, dim = x.shape
+        
+        if t is None:
+            t = torch.randint(0, self.n_timesteps, (batch_size,), device=device).long()
+        
+        # Expand t for each element in the sequence
+        t_expanded = t.unsqueeze(1).expand(-1, element_num).reshape(-1)  # [batch_size * element_num]
+        
+        # Reshape inputs for parallel processing but keep 3D structure
+        x_reshaped = x.reshape(batch_size * element_num, 1, dim)  # [batch*elem, 1, dim]
+        
+        # Prepare conditioning
+        if isinstance(cond, dict):
+            cond_flat = {}
+            for k, v in cond.items():
+                if isinstance(v, torch.Tensor):
+                    cond_flat[k] = v.unsqueeze(1).expand(-1, element_num, *v.shape[1:]).reshape(-1, *v.shape[1:])
+                else:
+                    cond_flat[k] = v
+        else:
+            cond_flat = cond
+        
+        noise = torch.randn_like(x_reshaped)
+        x_noisy = self.q_sample(x_start=x_reshaped, t=t_expanded, noise=noise)
+        
+        # Apply conditioning - need to ensure this works with 3D inputs
+        x_noisy = apply_conditioning(x_noisy, cond_flat, self.action_dim, self.cond_key)
+        
+        # Call model with proper 3D input
+        model_out = self.model(x_noisy, cond_flat, t_expanded)  # [batch*elem, 1, dim]
+        
+        # Reshape model output back to 2D for probability calculation
+        model_out = model_out.reshape(-1, dim)
+        
+        
+        x_target = x_reshaped.reshape(-1, dim)
+        x_recon = model_out
+        if self.clip_denoised:
+            x_recon.clamp_(-1.0, 1.0)
+            
+        posterior_variance = extract(self.posterior_variance, t_expanded, x_target.shape)
+        log_prob = -0.5 * ((x_target - x_recon) ** 2 / posterior_variance + 
+                    torch.log(2 * torch.tensor(math.pi) * posterior_variance))
+        
+        # Sum over feature dimensions only
+        log_prob = log_prob.sum(-1)  # [batch_size * element_num]
+        
+        # Reshape back to original structure
+        return log_prob.reshape(batch_size, element_num)
 
 class ValueDiffusion(GaussianDiffusion):
 

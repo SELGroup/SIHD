@@ -86,8 +86,10 @@ class SequenceDataset(torch.utils.data.Dataset):
 
         encoding_dict_path = "dicts/" + self.env_name + "/encoding_dict.pkl"
         encoding_dict = load_dict(encoding_dict_path)
-        if not encoding_dict:
-            encoding_dict = dict()
+        weight_dict_path = "dicts/" + self.env_name + "/weight_dict.pkl"
+        weight_dict = load_dict(weight_dict_path)
+        if not encoding_dict or not weight_dict:   
+            encoding_dict, weight_dict = dict(), dict()
             for bid in range(batch_size):
                 print("encoding {} in range of {}".format(bid, batch_size))
                 feature_arr, obs_arr = feature_dict[bid], observations[bid]
@@ -99,6 +101,13 @@ class SequenceDataset(torch.utils.data.Dataset):
                     vid = find_row_index(feature_arr, obs_arr[tid])
                     node = etree.tree_node[vid]
                     sg_list.append(node.ID)
+                    
+                    h = 0
+                    while h < self.node_height:
+                        node = etree.tree_node[node.parent]
+                        h += 1
+                    weight_dict[vid] = etree.cal_weight(node.ID)
+
                 sg_list = split_on_repeated_starts(sg_list)
 
                 if self.path_lengths[bid] > upper_bound:
@@ -114,8 +123,11 @@ class SequenceDataset(torch.utils.data.Dataset):
 
                 encoding_dict[bid] = sg_list
                 assert sum(encoding_dict[bid]) == self.path_lengths[bid]
+
             save_dict(encoding_dict, encoding_dict_path)
+            save_dict(weight_dict, weight_dict_path)
         self.encoding_dict = encoding_dict
+        self.eta_weight = max(weight_dict.values())
 
     def normalize(self, keys=["observations", "actions"]):
         """
