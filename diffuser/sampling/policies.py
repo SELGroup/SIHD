@@ -33,7 +33,7 @@ class GuidedPolicy:
         self.jump = jump
         self.jump_action = jump_action
 
-    def __call__(self, conditions, batch_size=1, verbose=False, return_sample=False):
+    def __call__(self, conditions, h_index=0, batch_size=1, verbose=False, return_sample=False):
         conditions = {k: self.preprocess_fn(v) for k, v in conditions.items()}
         conditions = self._format_conditions(conditions, batch_size)
 
@@ -56,7 +56,7 @@ class GuidedPolicy:
                 )
             else:
                 actions = self.normalizer.unnormalize(
-                    actions.reshape(*shape[:-1], self.jump, -1), "actions"
+                    actions.reshape(*shape[:-1], self.jump ** (h_index + 1), -1), "actions"
                 )
             actions = actions.reshape(*shape[:-1], -1)
 
@@ -106,9 +106,9 @@ class HlGuidedPolicy:
         verbose=True,
     ):
         hl_state = None
-        for hl_policy in self.hl_policies:
+        for h_index, hl_policy in enumerate(self.hl_policies):
             _, hl_traj = hl_policy(
-                conditions, batch_size, verbose, return_sample=False
+                conditions, h_index, batch_size, verbose, return_sample=False
             )
             hl_state = hl_traj.observations
 
@@ -129,6 +129,5 @@ class HlGuidedPolicy:
             0: ll_cond_[0],
             self.jump: ll_cond_[-1],
         }
-
         action, trajectories = self.ll_policy(ll_cond, batch_size, verbose)
         return action, trajectories

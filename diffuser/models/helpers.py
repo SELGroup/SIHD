@@ -165,6 +165,8 @@ def apply_conditioning(x, conditions, action_dim, cond_key):
     for t, val in conditions.items():
         if t in cond_key:
             cond_dim = val.shape[1]
+            if isinstance(val, (np.ndarray, list)):
+                val = torch.as_tensor(val)
             x[:, t, action_dim:action_dim+cond_dim] = val.clone()
     return x
 

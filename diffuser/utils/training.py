@@ -59,6 +59,7 @@ class Trainer(object):
         results_folder="./results",
         n_reference=8,
         bucket=None,
+        node_height=1,
     ):
         super().__init__()
         self.model = diffusion_model
@@ -101,6 +102,8 @@ class Trainer(object):
 
         self.reset_parameters()
         self.step = 0
+
+        self.node_height = node_height
 
     def reset_parameters(self):
         self.ema_model.load_state_dict(self.model.state_dict())
@@ -172,9 +175,9 @@ class Trainer(object):
             "ema": self.ema_model.state_dict(),
         }
         if prefix is not None:
-            savepath = os.path.join(self.logdir, f"{prefix}_state.pt")
+            savepath = os.path.join(self.logdir, f"{prefix}_state_{self.node_height}.pt")
         else:
-            savepath = os.path.join(self.logdir, f"state_{epoch}.pt")
+            savepath = os.path.join(self.logdir, f"state_{self.node_height}_{epoch}.pt")
         torch.save(data, savepath)
         print(f"[ utils/training ] Saved model to {savepath}", flush=True)
         if self.bucket is not None:
@@ -184,9 +187,9 @@ class Trainer(object):
         """
         loads model and ema from disk
         """
-        loadpath = os.path.join(self.logdir, f"state_{epoch}.pt")
+        loadpath = os.path.join(self.logdir, f"state_{self.node_height}_{epoch}.pt")
         data = torch.load(loadpath)
-
+        
         self.step = data["step"]
         self.model.load_state_dict(data["model"])
         self.ema_model.load_state_dict(data["ema"])

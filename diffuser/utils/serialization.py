@@ -35,10 +35,15 @@ def get_latest_epoch(loadpath):
     states = glob.glob1(os.path.join(*loadpath), "state_*")
     latest_epoch = -1
     for state in states:
-        epoch = int(state.replace("state_", "").replace(".pt", ""))
-        latest_epoch = max(epoch, latest_epoch)
+        base_name = state.replace(".pt", "")
+        parts = base_name.split("_")
+        if len(parts) >= 2:
+            try:
+                epoch = int(parts[-1])
+                latest_epoch = max(epoch, latest_epoch)
+            except ValueError:
+                continue
     return latest_epoch
-
 
 def load_config(*loadpath):
     loadpath = os.path.join(*loadpath)
@@ -48,19 +53,24 @@ def load_config(*loadpath):
     return config
 
 
-def load_diffusion(*loadpath, epoch="latest", device="cuda:0", seed=None, height=None):
-    if height is None:
-        dataset_config = load_config(*loadpath, "dataset_config.pkl")
-        render_config = load_config(*loadpath, "render_config.pkl")
-        model_config = load_config(*loadpath, "model_config.pkl")
-        diffusion_config = load_config(*loadpath, "diffusion_config.pkl")
-        trainer_config = load_config(*loadpath, "trainer_config.pkl")
-    else:
-        dataset_config = load_config(*loadpath, "dataset_config_{}.pkl".format(height))
-        render_config = load_config(*loadpath, "render_config_{}.pkl".format(height))
-        model_config = load_config(*loadpath, "model_config_{}.pkl".format(height))
-        diffusion_config = load_config(*loadpath, "diffusion_config_{}.pkl".format(height))
-        trainer_config = load_config(*loadpath, "trainer_config_{}.pkl".format(height))
+def load_diffusion(*loadpath, epoch="latest", device="cuda:0", seed=None, height=0):
+    # if height is None:
+    #     dataset_config = load_config(*loadpath, "dataset_config.pkl")
+    #     render_config = load_config(*loadpath, "render_config.pkl")
+    #     model_config = load_config(*loadpath, "model_config.pkl")
+    #     diffusion_config = load_config(*loadpath, "diffusion_config.pkl")
+    #     trainer_config = load_config(*loadpath, "trainer_config.pkl")
+    # else:
+    #     dataset_config = load_config(*loadpath, "dataset_config_{}.pkl".format(height))
+    #     render_config = load_config(*loadpath, "render_config_{}.pkl".format(height))
+    #     model_config = load_config(*loadpath, "model_config_{}.pkl".format(height))
+    #     diffusion_config = load_config(*loadpath, "diffusion_config_{}.pkl".format(height))
+    #     trainer_config = load_config(*loadpath, "trainer_config_{}.pkl".format(height))
+    dataset_config = load_config(*loadpath, "dataset_config_{}.pkl".format(height))
+    render_config = load_config(*loadpath, "render_config_{}.pkl".format(height))
+    model_config = load_config(*loadpath, "model_config_{}.pkl".format(height))
+    diffusion_config = load_config(*loadpath, "diffusion_config_{}.pkl".format(height))
+    trainer_config = load_config(*loadpath, "trainer_config_{}.pkl".format(height))
 
     ## remove absolute path for results loaded from azure
     ## @TODO : remove results folder from within trainer class
